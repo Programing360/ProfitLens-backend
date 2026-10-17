@@ -1,9 +1,10 @@
-import { Schema, model, Document } from "mongoose";
+import { Schema, model, Types } from "mongoose";
 
-export interface IUser extends Document {
+export interface IUser {
   name: string;
   email: string;
   passwordHash: string;
+  businessId?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +29,12 @@ const userSchema = new Schema<IUser>(
       type: String,
       required: true,
       select: false,
+    },
+
+    businessId: {
+      type: Schema.Types.ObjectId,
+      ref: "Business",
+      default: undefined,
     },
   },
   {

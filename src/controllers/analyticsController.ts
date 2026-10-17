@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
-import { Product } from "../models/Product.js";
-import { Sale } from "../models/Sales.js";
-import { Expense } from "../models/Expense.js";
+import { Product } from "../models/Product";
+import { Sale } from "../models/Sales";
+import { Expense } from "../models/Expense";
 
 export const getFinancialAnalytics = async (
   req: Request,

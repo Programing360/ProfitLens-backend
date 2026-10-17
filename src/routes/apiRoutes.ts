@@ -4,9 +4,9 @@ import {
   getProducts,
   createSale,
   createExpense,
-} from "../controllers/businessController.js";
-import { getFinancialAnalytics } from "../controllers/analyticsController.js";
-import { detectBusinessLeaks } from "../controllers/leakDetectionController.js";
+} from "../controllers/businessController";
+import { getFinancialAnalytics } from "../controllers/analyticsController";
+import { detectBusinessLeaks } from "../controllers/leakDetectionController";
 
 const router = Router();
 

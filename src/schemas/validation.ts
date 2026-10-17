@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const productValidationSchema = z.object({
+  businessId: z.string().min(1, "BusinessId is required"),
   name: z.string().min(1, "product name is required"),
   category: z.string().min(1, "Category is required"),
   productCost: z.number().positive("Product cost must be positive"),
@@ -10,7 +11,9 @@ export const productValidationSchema = z.object({
 });
 
 export const saleValidationSchema = z.object({
+  businessId: z.string().min(1, "BusinessId is required"),
   productId: z.string().min(1, "Product ID is required"),
+  unitCostAtSale: z.number().positive("unit Cost must be positive "),
   quantitySold: z.number().positive("Quantity sold must be positive"),
   totalRevenue: z.number().positive("Total revenue must be positive"),
 });

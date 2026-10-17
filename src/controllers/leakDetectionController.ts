@@ -1,8 +1,9 @@
-import { User } from "./../models/User.js";
-import { type Request, type Response } from "express";
-import { Product } from "../models/Product.js";
-import { Sale } from "../models/Sales.js";
-import { Business } from "../models/Business.js";
+import { type Response } from "express";
+import type { AuthenticatedRequest } from "../middlewares/authenticate";
+import { Product } from "../models/Product";
+import { Sale } from "../models/Sales";
+import { Business } from "../models/Business";
+import mongoose from "mongoose";
 
 export interface ILeakAlert {
   productId: string;
@@ -15,6 +16,7 @@ export interface ILeakAlert {
   message: string;
 
   evidence: {
+    metric: any;
     actualValue: number;
     threshold: number;
     unit: string;
@@ -23,25 +25,66 @@ export interface ILeakAlert {
   suggestedAction: string;
 }
 
+interface ISalesSummary {
+  _id: mongoose.Types.ObjectId;
+  totalSold: number;
+  totalRevenue: number;
+  totalProductCost: number;
+  totalPackagingCost: number;
+  totalDeliveryCost: number;
+  totalPaymentFee: number;
+  totalOtherVariableCosts: number;
+  salesCount: number;
+  salesWithoutHistoricalCost: number;
+}
+
 export const detectBusinessLeaks = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
 ): Promise<void> => {
   try {
-    // Analyze sales from the last 30 days.
-    const endDate = new Date();
-    const businessId = req.User.businessId;
+    // 1. Get authenticated user and business ID
+    const user = req.user;
+    const businessId = user?.businessId;
 
-    const business = await Business.findById(businessId);
-
-    if (!business) {
-      res.status(404).json({
+    if (!user || !businessId) {
+      res.status(403).json({
         success: false,
-        message: "Business not found.",
+        message: "No business is associated with this account.",
       });
       return;
     }
 
+    if (!mongoose.isValidObjectId(businessId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid business ID.",
+      });
+      return;
+    }
+
+    // 2. Verify business ownership and retrieve settings
+    const business = await Business.findById({
+      _id: businessId,
+      ownerId: user?.id,
+    });
+
+    if (!business) {
+      res.status(404).json({
+        success: false,
+        message: "Business not found or access denied.",
+      });
+      return;
+    }
+
+    const {
+      lowMarginThreshold,
+      slowMovingDays,
+      minimumStockForSlowMoving,
+      maximumSalesForSlowMoving,
+    } = business.settings;
+
+    const endDate = new Date();
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - 30);
 
@@ -51,10 +94,10 @@ export const detectBusinessLeaks = async (
     }).lean();
 
     // Aggregate sales by product within the selected period.
-    const salesSummary = await Sale.aggregate([
+    const salesSummary: ISalesSummary[] = await Sale.aggregate([
       {
         $match: {
-          businessId,
+          businessId: new mongoose.Types.ObjectId(businessId),
           saleDate: {
             $gte: startDate,
             $lt: endDate,
@@ -75,87 +118,138 @@ export const detectBusinessLeaks = async (
           },
           totalProductCost: {
             $sum: {
-              $multiply: ["$quantitySold", "$unitCostAtSale"],
+              $cond: [
+                {
+                  $isNumber: "$unitCostAtSale",
+                },
+                {
+                  $multiply: ["$quantitySold", "$unitCostAtSale"],
+                },
+                0,
+              ],
+            },
+          },
+          totalPackagingCost: {
+            $sum: "$packagingCost",
+          },
+
+          totalDeliveryCost: {
+            $sum: "$deliveryCost",
+          },
+
+          totalPaymentFee: {
+            $sum: "$paymentFee",
+          },
+
+          totalOtherVariableCosts: {
+            $sum: "$otherVariableCosts",
+          },
+          salesCount: {
+            $sum: 1,
+          },
+          salesWithoutHistoricalCost: {
+            $sum: {
+              $cond: [
+                {
+                  $isNumber: "$unitCostAtSale",
+                },
+                0,
+                1,
+              ],
             },
           },
         },
       },
     ]);
 
-    // Build a lookup map for efficient access.
-    const salesMap = new Map<
-      string,
-      { totalSold: number; totalRevenue: number; totalProductCost: number }
-    >();
+    // 6. Create a sales lookup map
+    const salesMap = new Map<string, ISalesSummary>();
 
     for (const sale of salesSummary) {
-      salesMap.set(sale._id.toString(), {
-        totalSold: sale.totalSold,
-        totalRevenue: sale.totalRevenue,
-        totalProductCost: sale.totalProductCost,
-      });
+      salesMap.set(sale._id.toString(), sale);
     }
 
     const alerts: ILeakAlert[] = [];
+    const now = Date.now();
+    const millisecondsPerDay = 1000 * 60 * 60 * 24;
 
     for (const product of products) {
       const productId = product._id.toString();
 
+      //   const productAgeInDays =
+      //     (Date.now() - product.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+
+      const salesData = salesMap.get(productId);
+      const totalSold = salesData?.totalSold ?? 0;
+      const totalRevenue = salesData?.totalRevenue ?? 0;
+      const totalProductCost = salesData?.totalProductCost ?? 0;
+
+      const totalPackagingCost = salesData?.totalPackagingCost ?? 0;
+
+      const totalDeliveryCost = salesData?.totalDeliveryCost ?? 0;
+
+      const totalPaymentFee = salesData?.totalPaymentFee ?? 0;
+
+      const totalOtherVariableCosts = salesData?.totalOtherVariableCosts ?? 0;
+
+      const salesCount = salesData?.salesCount ?? 0;
+      const salesWithoutHistoricalCost =
+        salesData?.salesWithoutHistoricalCost ?? 0;
+
       const productAgeInDays =
-        (Date.now() - product.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+        (now - new Date(product.createdAt).getTime()) / millisecondsPerDay;
 
-      const salesData = salesMap.get(productId) ?? {
-        totalSold: 0,
-        totalRevenue: 0,
-        totalProductCost: 0,
-      };
-
-      const { totalSold, totalRevenue, totalProductCost } = salesData;
+      //   const { totalSold, totalRevenue, totalProductCost } = salesData;
 
       // RULE 1: Low Profit Margin.
-      if (totalRevenue > 0) {
+      if (
+        totalRevenue > 0 &&
+        salesCount > 0 &&
+        salesWithoutHistoricalCost === 0
+      ) {
         const grossProfit = totalRevenue - totalProductCost;
 
-        const grossProfitMargin = (grossProfit / totalRevenue) * 100;
+        //   const grossProfitMargin =
+        //     totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
-        const totalUnitCost = product.productCost + product.otherCosts;
+        const totalVariableCosts =
+          totalPackagingCost +
+          totalDeliveryCost +
+          totalPaymentFee +
+          totalOtherVariableCosts;
 
-        const totalCost = totalUnitCost * totalSold;
+        const contributionProfit = grossProfit - totalVariableCosts;
 
-        const netProfit = totalRevenue - totalCost;
+        const contributionMargin =
+          totalRevenue > 0 ? (contributionProfit / totalRevenue) * 100 : 0;
 
-        const profitMargin = (netProfit / totalRevenue) * 100;
-
-        if (profitMargin < 15) {
+        if (contributionMargin < lowMarginThreshold) {
           alerts.push({
             productId,
             productName: product.name,
-
             issueType: "LOW_MARGIN",
-
-            severity: profitMargin < 5 ? "HIGH" : "MEDIUM",
-
+            severity: contributionMargin < 5 ? "HIGH" : "MEDIUM",
             message:
-              `Product '${product.name}' has a profit margin ` +
-              `of ${profitMargin.toFixed(1)}% over the last 30 days.`,
+              `Product '${product.name}' has a contribution margin of ` +
+              `${contributionMargin.toFixed(1)}% over the last 30 days.`,
 
             evidence: {
-              actualValue: Number(profitMargin.toFixed(2)),
-              threshold: 15,
+              actualValue: Number(contributionMargin.toFixed(2)),
+              threshold: lowMarginThreshold,
               unit: "%",
+              metric: undefined
             },
-
             suggestedAction:
-              "Review product cost, discounts, and other expenses.",
+              "Review historical product costs, selling prices, discounts, and direct expenses.",
           });
         }
       }
 
       // RULE 2: Slow-moving inventory.
       if (
-        productAgeInDays >= 30 &&
-        product.stockQuantity > 30 &&
-        totalSold < 5
+        productAgeInDays >= slowMovingDays &&
+        product.stockQuantity > minimumStockForSlowMoving &&
+        totalSold <= maximumSalesForSlowMoving
       ) {
         alerts.push({
           productId,
@@ -172,8 +266,9 @@ export const detectBusinessLeaks = async (
 
           evidence: {
             actualValue: totalSold,
-            threshold: 5,
+            threshold: maximumSalesForSlowMoving,
             unit: "units sold in 30 days",
+            metric: undefined
           },
 
           suggestedAction:
@@ -182,6 +277,7 @@ export const detectBusinessLeaks = async (
       }
     }
 
+    // 8. Return analysis results
     res.status(200).json({
       success: true,
 

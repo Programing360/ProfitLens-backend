@@ -1,12 +1,12 @@
 import { type Request, type Response } from "express";
-import { Product } from "../models/Product.js";
-import { Sale } from "../models/Sales.js";
-import { Expense } from "../models/Expense.js";
+import { Product } from "../models/Product";
+import { Sale } from "../models/Sales";
+import { Expense } from "../models/Expense";
 import {
   productValidationSchema,
   saleValidationSchema,
   expenseValidationSchema,
-} from "../schemas/validation.js";
+} from "../schemas/validation";
 
 export const createProduct = async (
   req: Request,

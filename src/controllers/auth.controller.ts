@@ -53,11 +53,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if (password.length < 12 || Buffer.byteLength(password, "utf8") > 72) {
+    if (password.length < 8 || Buffer.byteLength(password, "utf8") > 72) {
       res.status(400).json({
         success: false,
         message:
-          "Password must be at least 12 characters and no more than 72 UTF-8 bytes.",
+          "Password must be at least 8 characters and no more than 72 UTF-8 bytes.",
       });
       return;
     }

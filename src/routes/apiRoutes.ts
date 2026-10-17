@@ -1,29 +1,37 @@
 import { Router } from "express";
+
 import {
   createProduct,
   getProducts,
   createSale,
   createExpense,
 } from "../controllers/businessController";
+
 import { getFinancialAnalytics } from "../controllers/analyticsController";
 import { detectBusinessLeaks } from "../controllers/leakDetectionController";
 
+import { authenticate } from "../middlewares/authenticate";
+import { authorizeBusiness } from "../middlewares/authorizeBusiness";
+
 const router = Router();
 
-// Products Router
+// Protect all routes defined below.
+router.use(authenticate, authorizeBusiness);
+
+// Products
 router.post("/products", createProduct);
 router.get("/products", getProducts);
 
-// Sales Router
+// Sales
 router.post("/sales", createSale);
 
-// Expense Router
+// Expenses
 router.post("/expense", createExpense);
 
-// Analytics Route
+// Analytics
 router.get("/analytics", getFinancialAnalytics);
 
-// Leak Detection Route
+// Leak Detection
 router.get("/leaks", detectBusinessLeaks);
 
 export default router;

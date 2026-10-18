@@ -5,6 +5,9 @@ import {
   getProducts,
   createSale,
   createExpense,
+  deleteProduct,
+  updateProduct,
+  getSales,
 } from "../controllers/businessController";
 
 import { getFinancialAnalytics } from "../controllers/analyticsController";
@@ -21,9 +24,13 @@ router.use(authenticate, authorizeBusiness);
 // Products
 router.post("/products", createProduct);
 router.get("/products", getProducts);
+router.patch("/products/:productId", updateProduct);
+
+router.delete("/products/:productId", deleteProduct);
 
 // Sales
 router.post("/sales", createSale);
+router.get("/sales", getSales);
 
 // Expenses
 router.post("/expense", createExpense);

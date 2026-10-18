@@ -8,9 +8,15 @@ import {
   deleteProduct,
   updateProduct,
   getSales,
+  getExpenses,
+  updateExpense,
+  deleteExpense,
 } from "../controllers/businessController";
 
-import { getFinancialAnalytics } from "../controllers/analyticsController";
+import {
+  getFinancialAnalytics,
+  getMonthlyAnalytics,
+} from "../controllers/analyticsController";
 import { detectBusinessLeaks } from "../controllers/leakDetectionController";
 
 import { authenticate } from "../middlewares/authenticate";
@@ -33,10 +39,17 @@ router.post("/sales", createSale);
 router.get("/sales", getSales);
 
 // Expenses
-router.post("/expense", createExpense);
+router.post("/expenses", createExpense);
+
+router.get("/expenses", getExpenses);
+
+router.patch("/expenses/:expenseId", updateExpense);
+
+router.delete("/expenses/:expenseId", deleteExpense);
 
 // Analytics
 router.get("/analytics", getFinancialAnalytics);
+router.get("/analytics/monthly", getMonthlyAnalytics);
 
 // Leak Detection
 router.get("/leaks", detectBusinessLeaks);

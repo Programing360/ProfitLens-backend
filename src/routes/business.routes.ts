@@ -6,6 +6,7 @@ import { authorizeBusiness } from "../middlewares/authorizeBusiness";
 import { detectBusinessLeaks } from "../controllers/leakDetectionController";
 import { getAIRecommendations } from "../controllers/aiController";
 import { getDashboardOverview } from "../controllers/dashboard.controller";
+import { updateAlertStatus } from "../controllers/alertStatusController";
 
 const router = Router();
 
@@ -17,12 +18,8 @@ router.get(
   getAIRecommendations,
 );
 
-router.get(
-  "/overview",
-  authenticate,
-  authorizeBusiness,
-  getDashboardOverview,
-);
+router.get("/overview", authenticate, authorizeBusiness, getDashboardOverview);
+router.patch("/leaks/:alertId/status", updateAlertStatus);
 const businessRoutes = router;
 
 export default businessRoutes;

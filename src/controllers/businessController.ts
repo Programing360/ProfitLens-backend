@@ -529,3 +529,205 @@ export const createExpense = async (
     });
   }
 };
+
+// ==========================================
+// GET EXPENSES
+// ==========================================
+export const getExpenses = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const businessId = req.user?.businessId;
+
+    if (!businessId) {
+      res.status(403).json({
+        success: false,
+        message: "No business is associated with this account.",
+      });
+      return;
+    }
+
+    const expenses = await Expense.find({ businessId })
+      .populate("productId", "name category")
+      .sort({ expenseDate: -1 });
+
+    const totalExpenses = expenses.reduce(
+      (total, expense) => total + expense.amount,
+      0,
+    );
+
+    res.status(200).json({
+      success: true,
+      count: expenses.length,
+      totalExpenses,
+      data: expenses,
+    });
+  } catch (error: unknown) {
+    console.error("Get expenses error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch expenses.",
+    });
+  }
+};
+
+// ==========================================
+// UPDATE EXPENSE
+// ==========================================
+export const updateExpense = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const businessId = req.user?.businessId;
+    const { expenseId } = req.params;
+
+    if (!businessId) {
+      res.status(403).json({
+        success: false,
+        message: "No business is associated with this account.",
+      });
+      return;
+    }
+
+    if (!mongoose.isValidObjectId(expenseId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid expense ID.",
+      });
+      return;
+    }
+
+    const updateSchema = expenseValidationSchema.partial();
+    const validatedData = updateSchema.parse(req.body);
+
+    if (Object.keys(validatedData).length === 0) {
+      res.status(400).json({
+        success: false,
+        message: "Provide at least one field to update.",
+      });
+      return;
+    }
+
+    // Verify product ownership if a product is supplied.
+    if (validatedData.productId) {
+      if (!mongoose.isValidObjectId(validatedData.productId)) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid product ID.",
+        });
+        return;
+      }
+
+      const product = await Product.findOne({
+        _id: validatedData.productId,
+        businessId,
+      });
+
+      if (!product) {
+        res.status(404).json({
+          success: false,
+          message: "Product not found in your business.",
+        });
+        return;
+      }
+    }
+
+    const expense = await Expense.findOneAndUpdate(
+      { _id: expenseId, businessId },
+      { $set: validatedData },
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
+
+    if (!expense) {
+      res.status(404).json({
+        success: false,
+        message: "Expense not found.",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Expense updated successfully.",
+      data: expense,
+    });
+  } catch (error: unknown) {
+    if (
+      error instanceof mongoose.Error.ValidationError ||
+      (error instanceof Error && error.name === "ZodError")
+    ) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
+    console.error("Update expense error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update expense.",
+    });
+  }
+};
+// ==========================================
+// DELETE EXPENSE
+// ==========================================
+export const deleteExpense = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const businessId = req.user?.businessId;
+    const { expenseId } = req.params;
+
+    if (!businessId) {
+      res.status(403).json({
+        success: false,
+        message: "No business is associated with this account.",
+      });
+      return;
+    }
+
+    if (!mongoose.isValidObjectId(expenseId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid expense ID.",
+      });
+      return;
+    }
+
+    const expense = await Expense.findOneAndDelete({
+      _id: expenseId,
+      businessId,
+    });
+
+    if (!expense) {
+      res.status(404).json({
+        success: false,
+        message: "Expense not found.",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Expense deleted successfully.",
+      data: expense,
+    });
+  } catch (error: unknown) {
+    console.error("Delete expense error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete expense.",
+    });
+  }
+};

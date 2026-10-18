@@ -64,9 +64,9 @@ export const detectBusinessLeaks = async (
     }
 
     // 2. Verify business ownership and retrieve settings
-    const business = await Business.findById({
+    const business = await Business.findOne({
       _id: businessId,
-      ownerId: user?.id,
+      ownerId: user.id,
     });
 
     if (!business) {
@@ -237,7 +237,7 @@ export const detectBusinessLeaks = async (
               actualValue: Number(contributionMargin.toFixed(2)),
               threshold: lowMarginThreshold,
               unit: "%",
-              metric: undefined
+              metric: "contributionMargin",
             },
             suggestedAction:
               "Review historical product costs, selling prices, discounts, and direct expenses.",
@@ -268,7 +268,7 @@ export const detectBusinessLeaks = async (
             actualValue: totalSold,
             threshold: maximumSalesForSlowMoving,
             unit: "units sold in 30 days",
-            metric: undefined
+            metric: "unitsSold30Days",
           },
 
           suggestedAction:

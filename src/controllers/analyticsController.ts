@@ -157,3 +157,135 @@ export const getFinancialAnalytics = async (
     });
   }
 };
+export const getMonthlyAnalytics = async (
+  req: AuthenticatedRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const businessId = req.user?.businessId;
+
+    if (!businessId) {
+      res.status(403).json({
+        success: false,
+        message: "No business is associated with this account.",
+      });
+      return;
+    }
+
+    const now = new Date();
+
+    // Start from the first day of the month, five months ago.
+    const startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+    const [sales, expenses] = await Promise.all([
+      Sale.find({
+        businessId,
+        saleDate: { $gte: startDate, $lte: now },
+      }).lean(),
+
+      Expense.find({
+        businessId,
+        expenseDate: { $gte: startDate, $lte: now },
+      }).lean(),
+    ]);
+
+    // Build six monthly buckets, including months without transactions.
+    const monthlyData = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(
+        startDate.getFullYear(),
+        startDate.getMonth() + index,
+        1,
+      );
+
+      return {
+        year: date.getFullYear(),
+        month: date.getMonth(),
+        monthLabel: date.toLocaleDateString("en-US", {
+          month: "short",
+          year: "numeric",
+        }),
+        revenue: 0,
+        productCost: 0,
+        variableCosts: 0,
+        productExpenses: 0,
+        generalExpenses: 0,
+        expenses: 0,
+        netProfit: 0,
+      };
+    });
+
+    const getMonthBucket = (dateValue: Date | string) => {
+      const date = new Date(dateValue);
+
+      return monthlyData.find(
+        (item) =>
+          item.year === date.getFullYear() && item.month === date.getMonth(),
+      );
+    };
+
+    for (const sale of sales) {
+      const bucket = getMonthBucket(sale.saleDate);
+
+      if (!bucket) continue;
+
+      bucket.revenue += sale.totalRevenue;
+      bucket.productCost += sale.unitCostAtSale * sale.quantitySold;
+      bucket.variableCosts +=
+        sale.packagingCost +
+        sale.deliveryCost +
+        sale.paymentFee +
+        sale.otherVariableCosts;
+    }
+
+    for (const expense of expenses) {
+      const bucket = getMonthBucket(expense.expenseDate);
+
+      if (!bucket) continue;
+
+      if (expense.productId) {
+        bucket.productExpenses += expense.amount;
+      } else {
+        bucket.generalExpenses += expense.amount;
+      }
+    }
+
+    for (const bucket of monthlyData) {
+      bucket.expenses =
+        bucket.productCost +
+        bucket.variableCosts +
+        bucket.productExpenses +
+        bucket.generalExpenses;
+
+      bucket.netProfit = bucket.revenue - bucket.expenses;
+
+      bucket.revenue = Number(bucket.revenue.toFixed(2));
+      bucket.productCost = Number(bucket.productCost.toFixed(2));
+      bucket.variableCosts = Number(bucket.variableCosts.toFixed(2));
+      bucket.productExpenses = Number(bucket.productExpenses.toFixed(2));
+      bucket.generalExpenses = Number(bucket.generalExpenses.toFixed(2));
+      bucket.expenses = Number(bucket.expenses.toFixed(2));
+      bucket.netProfit = Number(bucket.netProfit.toFixed(2));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: monthlyData.map(
+        ({ year, month, monthLabel, revenue, expenses, netProfit }) => ({
+          year,
+          month: month + 1,
+          monthLabel,
+          revenue,
+          expenses,
+          netProfit,
+        }),
+      ),
+    });
+  } catch (error: unknown) {
+    console.error("Monthly analytics error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to calculate monthly analytics.",
+    });
+  }
+};

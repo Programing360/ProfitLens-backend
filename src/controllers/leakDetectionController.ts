@@ -3,20 +3,22 @@ import type { AuthenticatedRequest } from "../middlewares/authenticate";
 import { Product } from "../models/Product";
 import { Sale } from "../models/Sales";
 import { Business } from "../models/Business";
+import { Alert } from "../models/Alert";
 import mongoose from "mongoose";
 
-export interface ILeakAlert {
+type LeakIssueType = "LOW_MARGIN" | "SLOW_MOVING_INVENTORY";
+
+type LeakSeverity = "HIGH" | "MEDIUM" | "LOW";
+
+interface ILeakAlert {
   productId: string;
   productName: string;
-
-  issueType: "LOW_MARGIN" | "SLOW_MOVING_INVENTORY";
-
-  severity: "HIGH" | "MEDIUM" | "LOW";
-
+  issueType: LeakIssueType;
+  severity: LeakSeverity;
   message: string;
 
   evidence: {
-    metric: any;
+    metric: string;
     actualValue: number;
     threshold: number;
     unit: string;
@@ -43,7 +45,7 @@ export const detectBusinessLeaks = async (
   res: Response,
 ): Promise<void> => {
   try {
-    // 1. Get authenticated user and business ID
+    // 1. Validate authenticated user and business ID.
     const user = req.user;
     const businessId = user?.businessId;
 
@@ -63,9 +65,11 @@ export const detectBusinessLeaks = async (
       return;
     }
 
-    // 2. Verify business ownership and retrieve settings
+    const businessObjectId = new mongoose.Types.ObjectId(businessId);
+
+    // 2. Verify business ownership.
     const business = await Business.findOne({
-      _id: businessId,
+      _id: businessObjectId,
       ownerId: user.id,
     });
 
@@ -84,27 +88,28 @@ export const detectBusinessLeaks = async (
       maximumSalesForSlowMoving,
     } = business.settings;
 
+    // 3. Define analysis period.
     const endDate = new Date();
     const startDate = new Date(endDate);
+
     startDate.setDate(startDate.getDate() - 30);
 
-    // Fetch products.
+    // 4. Fetch business products.
     const products = await Product.find({
-      businessId,
+      businessId: businessObjectId,
     }).lean();
 
-    // Aggregate sales by product within the selected period.
+    // 5. Aggregate sales from the last 30 days.
     const salesSummary: ISalesSummary[] = await Sale.aggregate([
       {
         $match: {
-          businessId: new mongoose.Types.ObjectId(businessId),
+          businessId: businessObjectId,
           saleDate: {
             $gte: startDate,
             $lt: endDate,
           },
         },
       },
-
       {
         $group: {
           _id: "$productId",
@@ -116,12 +121,11 @@ export const detectBusinessLeaks = async (
           totalRevenue: {
             $sum: "$totalRevenue",
           },
+
           totalProductCost: {
             $sum: {
               $cond: [
-                {
-                  $isNumber: "$unitCostAtSale",
-                },
+                { $isNumber: "$unitCostAtSale" },
                 {
                   $multiply: ["$quantitySold", "$unitCostAtSale"],
                 },
@@ -129,6 +133,7 @@ export const detectBusinessLeaks = async (
               ],
             },
           },
+
           totalPackagingCost: {
             $sum: "$packagingCost",
           },
@@ -144,42 +149,38 @@ export const detectBusinessLeaks = async (
           totalOtherVariableCosts: {
             $sum: "$otherVariableCosts",
           },
+
           salesCount: {
             $sum: 1,
           },
+
           salesWithoutHistoricalCost: {
             $sum: {
-              $cond: [
-                {
-                  $isNumber: "$unitCostAtSale",
-                },
-                0,
-                1,
-              ],
+              $cond: [{ $isNumber: "$unitCostAtSale" }, 0, 1],
             },
           },
         },
       },
     ]);
 
-    // 6. Create a sales lookup map
+    // 6. Create sales lookup map.
     const salesMap = new Map<string, ISalesSummary>();
 
     for (const sale of salesSummary) {
       salesMap.set(sale._id.toString(), sale);
     }
 
-    const alerts: ILeakAlert[] = [];
+    // 7. Detect potential business leaks.
+    const detectedAlerts: ILeakAlert[] = [];
+
     const now = Date.now();
     const millisecondsPerDay = 1000 * 60 * 60 * 24;
 
     for (const product of products) {
       const productId = product._id.toString();
 
-      //   const productAgeInDays =
-      //     (Date.now() - product.createdAt.getTime()) / (1000 * 60 * 60 * 24);
-
       const salesData = salesMap.get(productId);
+
       const totalSold = salesData?.totalSold ?? 0;
       const totalRevenue = salesData?.totalRevenue ?? 0;
       const totalProductCost = salesData?.totalProductCost ?? 0;
@@ -193,24 +194,20 @@ export const detectBusinessLeaks = async (
       const totalOtherVariableCosts = salesData?.totalOtherVariableCosts ?? 0;
 
       const salesCount = salesData?.salesCount ?? 0;
+
       const salesWithoutHistoricalCost =
         salesData?.salesWithoutHistoricalCost ?? 0;
 
       const productAgeInDays =
         (now - new Date(product.createdAt).getTime()) / millisecondsPerDay;
 
-      //   const { totalSold, totalRevenue, totalProductCost } = salesData;
-
-      // RULE 1: Low Profit Margin.
+      // RULE 1: Low contribution margin.
       if (
         totalRevenue > 0 &&
         salesCount > 0 &&
         salesWithoutHistoricalCost === 0
       ) {
         const grossProfit = totalRevenue - totalProductCost;
-
-        //   const grossProfitMargin =
-        //     totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
         const totalVariableCosts =
           totalPackagingCost +
@@ -220,25 +217,27 @@ export const detectBusinessLeaks = async (
 
         const contributionProfit = grossProfit - totalVariableCosts;
 
-        const contributionMargin =
-          totalRevenue > 0 ? (contributionProfit / totalRevenue) * 100 : 0;
+        const contributionMargin = (contributionProfit / totalRevenue) * 100;
 
         if (contributionMargin < lowMarginThreshold) {
-          alerts.push({
+          detectedAlerts.push({
             productId,
             productName: product.name,
             issueType: "LOW_MARGIN",
+
             severity: contributionMargin < 5 ? "HIGH" : "MEDIUM",
+
             message:
               `Product '${product.name}' has a contribution margin of ` +
               `${contributionMargin.toFixed(1)}% over the last 30 days.`,
 
             evidence: {
+              metric: "contributionMargin",
               actualValue: Number(contributionMargin.toFixed(2)),
               threshold: lowMarginThreshold,
               unit: "%",
-              metric: "contributionMargin",
             },
+
             suggestedAction:
               "Review historical product costs, selling prices, discounts, and direct expenses.",
           });
@@ -251,10 +250,9 @@ export const detectBusinessLeaks = async (
         product.stockQuantity > minimumStockForSlowMoving &&
         totalSold <= maximumSalesForSlowMoving
       ) {
-        alerts.push({
+        detectedAlerts.push({
           productId,
           productName: product.name,
-
           issueType: "SLOW_MOVING_INVENTORY",
 
           severity: product.stockQuantity > 50 ? "HIGH" : "MEDIUM",
@@ -265,10 +263,10 @@ export const detectBusinessLeaks = async (
             `but only ${totalSold} units sold in the last 30 days.`,
 
           evidence: {
+            metric: "unitsSold30Days",
             actualValue: totalSold,
             threshold: maximumSalesForSlowMoving,
             unit: "units sold in 30 days",
-            metric: "unitsSold30Days",
           },
 
           suggestedAction:
@@ -277,7 +275,52 @@ export const detectBusinessLeaks = async (
       }
     }
 
-    // 8. Return analysis results
+    // 8. Persist detected alerts.
+    const savedAlerts = [];
+
+    for (const detectedAlert of detectedAlerts) {
+      const productObjectId = new mongoose.Types.ObjectId(
+        detectedAlert.productId,
+      );
+
+      // Find an existing unresolved alert for this product and issue.
+      const existingAlert = await Alert.findOne({
+        businessId: businessObjectId,
+        productId: productObjectId,
+        issueType: detectedAlert.issueType,
+        status: { $in: ["OPEN", "ACKNOWLEDGED"] },
+      });
+
+      let savedAlert;
+
+      if (existingAlert) {
+        // Update the existing alert without resetting its status.
+        existingAlert.productName = detectedAlert.productName;
+        existingAlert.severity = detectedAlert.severity;
+        existingAlert.message = detectedAlert.message;
+        existingAlert.evidence = detectedAlert.evidence;
+        existingAlert.suggestedAction = detectedAlert.suggestedAction;
+
+        savedAlert = await existingAlert.save();
+      } else {
+        // No unresolved alert exists, so create a new one.
+        savedAlert = await Alert.create({
+          businessId: businessObjectId,
+          productId: productObjectId,
+          productName: detectedAlert.productName,
+          issueType: detectedAlert.issueType,
+          severity: detectedAlert.severity,
+          message: detectedAlert.message,
+          evidence: detectedAlert.evidence,
+          suggestedAction: detectedAlert.suggestedAction,
+          status: "OPEN",
+        });
+      }
+
+      savedAlerts.push(savedAlert);
+    }
+
+    // 9. Return saved alerts, including MongoDB-generated _id.
     res.status(200).json({
       success: true,
 
@@ -286,17 +329,18 @@ export const detectBusinessLeaks = async (
         endDate,
       },
 
-      totalAlerts: alerts.length,
+      totalAlerts: savedAlerts.length,
 
       summary: {
-        high: alerts.filter((alert) => alert.severity === "HIGH").length,
+        high: savedAlerts.filter((alert) => alert.severity === "HIGH").length,
 
-        medium: alerts.filter((alert) => alert.severity === "MEDIUM").length,
+        medium: savedAlerts.filter((alert) => alert.severity === "MEDIUM")
+          .length,
 
-        low: alerts.filter((alert) => alert.severity === "LOW").length,
+        low: savedAlerts.filter((alert) => alert.severity === "LOW").length,
       },
 
-      alerts,
+      alerts: savedAlerts,
     });
   } catch (error: unknown) {
     console.error("Business leak detection failed:", error);

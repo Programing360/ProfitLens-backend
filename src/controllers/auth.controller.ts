@@ -214,3 +214,37 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     });
   }
 };
+
+export const getUser = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await User.findById(req.user?.id)
+      .select("-passwordHash")
+      .lean();
+
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "User fetched successfully.",
+      data: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        businessId: user.businessId?.toString() ?? null,
+      },
+    });
+  } catch (error: unknown) {
+    console.error("Get user failed:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch user.",
+    });
+  }
+};

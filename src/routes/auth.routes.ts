@@ -1,6 +1,7 @@
 import { Router } from "express";
 
-import { register, login } from "../controllers/auth.controller";
+import { register, login, getUser } from "../controllers/auth.controller";
+import { authenticate } from "../middlewares/authenticate";
 
 const router = Router();
 router.get("/test", (req, res) => {
@@ -11,6 +12,7 @@ router.get("/test", (req, res) => {
 });
 router.post("/register", register);
 router.post("/login", login);
+router.get("/me", authenticate, getUser);
 
 const authRouters = router;
 

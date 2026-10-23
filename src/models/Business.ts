@@ -9,6 +9,8 @@ export interface IBusiness extends Document {
     slowMovingDays: number;
     minimumStockForSlowMoving: number;
     maximumSalesForSlowMoving: number;
+    lowStockThreshold: number;
+    currency: string;
   };
 
   createdAt: Date;
@@ -42,6 +44,7 @@ const businessSchema = new Schema<IBusiness>(
         type: Number,
         default: 30,
         min: 1,
+        max: 365,
       },
 
       minimumStockForSlowMoving: {
@@ -54,6 +57,18 @@ const businessSchema = new Schema<IBusiness>(
         type: Number,
         default: 5,
         min: 0,
+      },
+
+      lowStockThreshold: {
+        type: Number,
+        default: 10,
+        min: 0,
+      },
+
+      currency: {
+        type: String,
+        enum: ["BDT", "USD", "EUR", "GBP", "INR"],
+        default: "BDT",
       },
     },
   },

@@ -3,9 +3,24 @@ dotenv.config();
 
 import OpenAI from "openai";
 import { z } from "zod";
+// 🎯 ১. OpenRouter API Keys Array Filter (খালি কি বাদ দেওয়ার জন্য)
+const API_KEYS = [
+  process.env.OPENROUTER_API_KEY_1,
+  process.env.OPENROUTER_API_KEY_2,
+  process.env.OPENROUTER_API_KEY_3,
+  process.env.OPENROUTER_API_KEY_4,
+].filter(Boolean) as string[];
 
-const apiKey = process.env.OPENROUTER_API_KEY;
+// const apiKey = process.env.OPENROUTER_API_KEY;
 const model = process.env.OPENROUTER_MODEL;
+
+let currentKeyIndex = 0;
+const apiKey =
+  API_KEYS[currentKeyIndex] || process.env.OPENROUTER_API_KEY_1 || "";
+
+if (API_KEYS.length > 0) {
+  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+}
 
 if (!apiKey) {
   throw new Error("OPENROUTER_API_KEY is not configured.");
@@ -100,7 +115,7 @@ Rules:
       type: "json_object",
     },
     temperature: 0.2,
-    max_tokens: 2000,
+    max_tokens: 550,
   });
 
   const content = response.choices[0]?.message?.content;

@@ -1,17 +1,29 @@
 import mongoose from "mongoose";
 
-import type { ILeakAlert } from "../controllers/leakDetectionController";
-
 import { Business } from "../models/Business";
 import { Product } from "../models/Product";
 import { Sale } from "../models/Sales";
+import { LeakIssueType, LeakSeverity } from "../models/Alert";
 
+export interface IDetectedLeak {
+  productId: string;
+  productName: string;
+  issueType: LeakIssueType;
+  severity: LeakSeverity;
+  message: string;
+  evidence: {
+    metric: string;
+    actualValue: number;
+    threshold: number;
+    unit: string;
+  };
+  suggestedAction: string;
+}
 export interface LeakDetectionResult {
   startDate: Date;
   endDate: Date;
-  alerts: ILeakAlert[];
+  alerts: IDetectedLeak[];
 }
-
 interface ISalesSummary {
   _id: mongoose.Types.ObjectId;
   totalSold: number;
@@ -157,7 +169,7 @@ export const analyzeBusinessLeaks = async (
   }
 
   // 7. Detect business leaks
-  const alerts: ILeakAlert[] = [];
+  const alerts: IDetectedLeak[] = [];
 
   const now = Date.now();
   const millisecondsPerDay = 1000 * 60 * 60 * 24;
@@ -221,10 +233,10 @@ export const analyzeBusinessLeaks = async (
             `${contributionMargin.toFixed(1)}% over the last 30 days.`,
 
           evidence: {
-              actualValue: Number(contributionMargin.toFixed(2)),
-              threshold: lowMarginThreshold,
-              unit: "%",
-              metric: undefined
+            actualValue: Number(contributionMargin.toFixed(2)),
+            threshold: lowMarginThreshold,
+            unit: "%",
+            metric: "contributionMargin",
           },
 
           suggestedAction:
@@ -253,10 +265,10 @@ export const analyzeBusinessLeaks = async (
           `but only ${totalSold} units sold in the last 30 days.`,
 
         evidence: {
-            actualValue: totalSold,
-            threshold: maximumSalesForSlowMoving,
-            unit: "units sold in 30 days",
-            metric: undefined
+          actualValue: totalSold,
+          threshold: maximumSalesForSlowMoving,
+          unit: "units sold in 30 days",
+          metric: "unitsSoldIn30Days",
         },
 
         suggestedAction:

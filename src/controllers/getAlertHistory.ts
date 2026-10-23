@@ -1,7 +1,6 @@
 import { Response } from "express";
-import type { FilterQuery } from "mongoose";
-import mongoose from "mongoose";
 
+import mongoose from "mongoose";
 import type { AuthenticatedRequest } from "../middlewares/authenticate";
 import { Alert, type ILeakAlert } from "../models/Alert";
 
@@ -96,10 +95,9 @@ export const getAlertHistory = async (
     // Every query is restricted to the authenticated user's business.
     const businessObjectId = new mongoose.Types.ObjectId(businessId);
 
-    const filter: FilterQuery<ILeakAlert> = {
+    const filter: mongoose.QueryFilter<ILeakAlert> = {
       businessId: businessObjectId,
     };
-
     // Optional status filter
     if (status) {
       filter.status = status as (typeof VALID_STATUSES)[number];
